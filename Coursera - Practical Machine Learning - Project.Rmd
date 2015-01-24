@@ -1,0 +1,121 @@
+---
+title: "Coursera - Practical Machine Learning - Project"
+author: "jshill"
+date: "Saturday, January 24, 2015"
+output: html_document
+---
+
+## Problem Statement
+The goal of this project is to use the R statistical programming language to apply machine learnging techniques which will correctly identify different motions from a set of sensor readings. Test participants were asked to perform barbell lifts correctly and incorrectly in five different ways. Accelerometers on the belt, forearm, arm, and dumbell of the test participants provided measurements for each motion. More information regarding the experiments is available from the Weight Lifting Exercise Dataset section at http://groupware.les.inf.puc-rio.br/har.
+
+## Preparing the Data
+The exercise data used to generate the prediction model are loaded into R from a .csv file.
+```{r}
+dataExercise <- read.csv(file = ".//data//pml-training.csv", header = T)
+```
+
+The dataset contains `r nrow(dataExercise)` observations of `r ncol(dataExercise)` variables, including the `classe` variable which indicates one of the five different ways categorizing the motion. However, inspection of the variables reveals that many will clearly not be of use in building the prediction model. For example, the first seven variables contain time stamps and chronological index information. These variables can be removed from the dataset.
+
+```{r}
+head(names(dataExercise), 10)
+dataExercise <- dataExercise[,-(1:7)]
+```
+
+There are also many variables that mostly contain NAs. By screening for variables that are more than 50% NAs, these variables are identified and removed.
+
+```{r}
+fracNA <- apply(dataExercise, MARGIN = 2, 
+                function(x) sum(is.na(x))/length(x))
+removeFracNA <- which(fracNA > 0.5)
+dataExercise <- dataExercise[,-removeFracNA]
+```
+
+Several variables also have a very high proportion of missing values. By screening for variables that have more than 50% of their values missing, these variables are identified and removed.
+
+```{r}
+fracMissing <- apply(dataExercise, MARGIN = 2, 
+                function(x) sum(x=="")/length(x))
+removeFracMissing <- which(fracMissing > 0.5)
+dataExercise <- dataExercise[,-removeFracMissing]
+```
+
+The presence of other missing values within the remaining variables can be found by looking at the fraction of observations that have values for each variable.
+
+```{r}
+sum(complete.cases(dataExercise))/nrow(dataExercise)
+```
+
+The above result indicates none of the observations contain missing values for the variables that remain in the dataset. The final dataset that will be used for building the prediction model now has `r nrow(dataExercise)` observations of `r ncol(dataExercise)` variables, including the `classe` variable.
+
+## Building the Model
+The `caret` package in R is used to perform the machine learning tasks on the dataset. First, the dataset is randomly partitioned into a training set and a validation set, with approximately 70% of the data ending up in the training set.
+
+```{r}
+library(caret)
+set.seed(1222015)
+inTrain <- createDataPartition(dataExercise$classe, p=0.7, list=F)
+training <- dataExercise[inTrain,]
+validation <- dataExercise[-inTrain,]
+```
+
+Following the partitioning, the training set contains `r nrow(training)` observations while the validation set contains `r nrow(validation)` observations.
+
+The Random Forest method is used to train a prediction model from the training set. All 52 remaining variables are used to predict `classe`. The results of the model training are shown below.
+
+```{r, cache=TRUE}
+model <- train(classe ~ ., data = training, method = "rf", 
+               prox = T, importance = T)
+model
+```
+
+Since the response variable is categorical, prediction accuracy is an appropriate measure of the error rate. Of all the trees produced by the Random Forest procedure, tree number 27 is the optimum model. The in-sample accuracy for this tree is 98.56%. This tree is selected and examined further.
+
+
+```{r}
+library(randomForest)
+finalTree <- getTree(model$finalModel, k=27, labelVar=T)
+```
+
+The optimum tree contains `r nrow(finalTree)` nodes. The number of terminal nodes in the tree is given below.
+
+```{r}
+length(which(finalTree[,5]==-1))
+```
+
+The variables used to create the tree are shown below.
+
+```{r}
+sort(unique(finalTree[,3]))
+```
+
+`r length(unique(finalTree[,3])) - 1` variables were used to generate the optimum decision tree.
+
+## Model Validation
+The performance of the model is now checked against the validation set to estimate the out-of-sample accuracy.
+
+```{r}
+checkVal <- predict(model, validation[,-53])
+confusionMatrix(checkVal, validation[,53])
+```
+
+The out-of-sample accuracy is estimated to be 98.91%.
+
+## Predicting from the Test Data
+The test data are now loaded from a different .csv file and pre-processed as before.
+
+```{r}
+dataTest <- read.csv(file = ".//data//pml-testing.csv", header = T)
+dataTest <- dataTest[,-(1:7)]
+dataTest <- dataTest[,-removeFracNA]
+dataTest <- dataTest[,-removeFracMissing]
+```
+
+This dataset contains `r nrow(dataTest)` observations but without the `classe` motion classification variable. In other words, the true motion corresponding to the sensor data is not known. The prediction model developed above is now used to predict the motion classifications for the test data.
+
+```{r}
+answers <- predict(model, newdata = dataTest[,-53])
+answers
+```
+
+## Summary
+A Random Forest procedure was used to train a prediction model for classifying dumbell exercise motions. The optimum decision tree used `r length(unique(finalTree[,3])) - 1` variables and had `r nrow(finalTree)` decision and terminal nodes. The out-of-sample accuracy was estimated to be 98.91%.
